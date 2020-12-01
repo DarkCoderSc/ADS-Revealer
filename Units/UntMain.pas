@@ -19,9 +19,9 @@ uses
 
 type
   TTreeData = record
-    Name        : String;
-    DataStreams : TEnumDataStream; // Can be NULL (Childs)
-    DataStream  : TDataStream;     // Can be NULL (Parents)
+    Name       : String;
+    StreamSize : Int64;
+    StreamPath : String;
   end;
   PTreeData = ^TTreeData;
 
@@ -65,6 +65,8 @@ type
     procedure TerminateThread();
     function CountNodes(ALevel : Integer) : Int64;
     procedure RefreshList();
+    function GetParentNode(ANode : PVirtualNode) : PVirtualNode;
+    function GetADSEnumerator(ANode : PVirtualNode) : TEnumDataStream;
   public
     {@M}
     procedure RefreshStatusBar();
@@ -78,6 +80,35 @@ implementation
 uses UntUtils, ShellAPI;
 
 {$R *.dfm}
+
+function TFrmMain.GetParentNode(ANode : PVirtualNode) : PVirtualNode;
+begin
+  result := nil;
+  ///
+
+  if NOT Assigned(ANode) then
+    Exit();
+
+  if VST.GetNodeLevel(ANode) = 1 then
+    result := ANode.Parent
+  else
+    result := ANode; // We are already the parent node.
+end;
+
+function TFrmMain.GetADSEnumerator(ANode : PVirtualNode) : TEnumDataStream;
+var AData : PTreeData;
+begin
+  result := nil;
+  ///
+
+  ANode := self.GetParentNode(ANode);
+  if NOT Assigned(ANode) then
+    Exit();
+
+  AData := VST.GetNodeData(ANode);
+
+  result := TEnumDataStream.Create(AData^.Name, True);
+end;
 
 procedure TFrmMain.RefreshList();
 begin
@@ -102,10 +133,11 @@ begin
 end;
 
 procedure TFrmMain.BackupcurrentADS1Click(Sender: TObject);
-var AData     : PTreeData;
-    ARet      : Boolean;
-    ADestPath : String;
-    i         : Integer;
+var AData        : PTreeData;
+    ADestPath    : String;
+    i            : Integer;
+    ADataStreams : TEnumDataStream;
+    AStatus      : TADSBackupStatus;
 begin
   AData := VST.GetNodeData(VST.FocusedNode);
   if NOT Assigned(AData) then
@@ -113,24 +145,26 @@ begin
 
   ADestPath := BrowseForFolder('Backup ADS file(s) to target folder.');
 
-  if Assigned(AData^.DataStreams) then begin
-    // TODO: Multi Error Handling
-    for I := 0 to AData^.DataStreams.Items.count -1 do begin
-      ARet := AData^.DataStreams.Items.Items[i].BackupTo(ADestPath);
-    end;
-  end else if Assigned(AData^.DataStream) then begin
-    ARet := AData^.DataStream.BackupTo(ADestPath);
+  ADataStreams := self.GetADSEnumerator(VST.FocusedNode);
+  if NOT Assigned(ADataStreams) then
+    Exit();
+  try
+    AStatus := ADataStreams.BackupAllFromADS(ADestPath);
+  finally
+    FreeAndNil(ADataStreams);
   end;
 
-  if ARet then
-    Application.MessageBox('File(s) successfully backuped from target ADS.', 'Backup from ADS', MB_ICONINFORMATION)
-  else
-    Application.MessageBox('Could not backup file(s) from target ADS.', 'Backup from ADS', MB_ICONERROR);
+  case AStatus of
+    absPartial : Application.MessageBox('File(s) partially "backuped" from target ADS.', 'Backup from ADS', MB_ICONINFORMATION);
+    absTotal   : Application.MessageBox('File(s) successfully "backuped" from target ADS.', 'Backup from ADS', MB_ICONINFORMATION);
+    absError   : Application.MessageBox('Could not backup file(s) from target ADS.', 'Backup from ADS', MB_ICONERROR);
+  end;
 end;
 
 procedure TFrmMain.CopyfiletocurrentADS1Click(Sender: TObject);
-var AData : PTreeData;
-    ARet  : Boolean;
+var AData        : PTreeData;
+    ARet         : Boolean;
+    ADataStreams : TEnumDataStream;
 begin
   if NOT self.OpenDialog1.Execute() then
     Exit();
@@ -139,10 +173,13 @@ begin
   if NOT Assigned(AData) then
     Exit();
 
-  if Assigned(AData^.DataStreams) then begin
-    ARet := AData^.DataStreams.CopyToAlternateDataStream(self.OpenDialog1.FileName);
-  end else if Assigned(AData^.DataStream) then begin
-    ARet := AData^.DataStream.CopyFileTo(self.OpenDialog1.FileName);
+  ADataStreams := self.GetADSEnumerator(VST.FocusedNode);
+  if NOT Assigned(ADataStreams) then
+    Exit();
+  try
+    ARet := ADataStreams.CopyFileToADS(self.OpenDialog1.FileName);
+  finally
+    FreeAndNil(ADataStreams);
   end;
 
   if ARet then
@@ -183,27 +220,31 @@ begin
 end;
 
 procedure TFrmMain.DeleteCurrentADSItem1Click(Sender: TObject);
-var AData : PTreeData;
-    ARet  : Boolean;
-    i     : Integer;
+var AData        : PTreeData;
+    ARet         : Boolean;
+    i            : Integer;
+    ADataStreams : TEnumDataStream;
 begin
+  if (VST.GetNodeLevel(VST.FocusedNode) = 0) then
+    Exit();
+
   AData := VST.GetNodeData(VST.FocusedNode);
   if NOT Assigned(AData) then
     Exit();
 
-  if Assigned(AData^.DataStreams) then begin
-    // TODO: Multi Error Handling
-    for I := 0 to AData^.DataStreams.Items.count -1 do begin
-      ARet := AData^.DataStreams.Items.Items[i].Delete();
-    end;
-  end else if Assigned(AData^.DataStream) then begin
-    ARet := AData^.DataStream.Delete();
+  ADataStreams := self.GetADSEnumerator(VST.FocusedNode);
+  if NOT Assigned(ADataStreams) then
+    Exit();
+  try
+    ARet := ADataStreams.DeleteFromADS(AData^.Name);
+  finally
+    FreeAndNil(ADataStreams);
   end;
 
   if ARet then
-    Application.MessageBox('File(s) successfully deleted from target ADS.', 'Delete from ADS', MB_ICONINFORMATION)
+    Application.MessageBox('File successfully deleted from target ADS.', 'Delete from ADS', MB_ICONINFORMATION)
   else
-    Application.MessageBox('Could not delete file(s) from target ADS.', 'Delete from ADS', MB_ICONERROR);
+    Application.MessageBox('Could not delete file from target ADS.', 'Delete from ADS', MB_ICONERROR);
 
   self.RefreshList();
 end;
@@ -236,8 +277,9 @@ end;
 
 procedure TFrmMain.OpenFolder1Click(Sender: TObject);
 begin
-  FLastPath := BrowseForFolder('Search for Alternate Data Stream in Folder:');
+  //FLastPath := BrowseForFolder('Search for Alternate Data Stream in Folder:');
 
+  FLastPath:= 'c:\tmp';
   self.RefreshList();
 end;
 
@@ -250,6 +292,8 @@ begin
   self.BackupcurrentADS1.Enabled     := Assigned(ANode);
   self.DeleteCurrentADSItem1.Enabled := Assigned(ANode);
 
+  if self.DeleteCurrentADSItem1.Enabled then
+    self.DeleteCurrentADSItem1.Enabled := (VST.GetNodeLevel(ANode) = 1);
 end;
 
 procedure TFrmMain.Quit1Click(Sender: TObject);
@@ -264,13 +308,8 @@ begin
 end;
 
 procedure TFrmMain.VSTFreeNode(Sender: TBaseVirtualTree; Node: PVirtualNode);
-var AData : PTreeData;
 begin
-  AData := VST.GetNodeData(Node);
-  if Assigned(AData) then begin
-    if Assigned(AData^.DataStreams) then
-      FreeAndNil(AData^.DataStreams); // Important
-  end;
+  ///
 end;
 
 procedure TFrmMain.VSTGetNodeDataSize(Sender: TBaseVirtualTree;
@@ -281,7 +320,8 @@ end;
 
 procedure TFrmMain.VSTGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
-var AData : PTreeData;
+var AData  : PTreeData;
+    ALevel : Integer;
 begin
   AData := VST.GetNodeData(Node);
   if NOT Assigned(AData) then
@@ -290,22 +330,21 @@ begin
 
   CellText := '';
 
+  ALevel := VST.GetNodeLevel(Node);
+
   case Column of
     0 : begin
-      if Assigned(AData^.DataStream) then
-        CellText := AData^.DataStream.StreamName
-      else
-        CellText := AData^.Name;
+      CellText := AData^.Name;
     end;
 
     1 : begin
-      if Assigned(AData^.DataStream) then
-        CellText := FormatSize(AData^.DataStream.StreamSize);
+      if (ALevel = 1) then
+        CellText := FormatSize(AData^.StreamSize);
     end;
 
     2 : begin
-      if Assigned(AData^.DataStream) then
-        CellText := AData^.DataStream.StreamPath;
+      if (ALevel = 1) then
+        CellText := AData^.StreamPath;
     end;
   end;
 end;

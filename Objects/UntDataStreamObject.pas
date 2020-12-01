@@ -17,6 +17,7 @@ uses WinAPI.Windows, System.Classes, System.SysUtils, Generics.Collections,
 
 type
   TEnumDataStream = class;
+  TADSBackupStatus = (absTotal, absPartial, absError);
 
   TDataStream = class
   private
@@ -31,9 +32,9 @@ type
     constructor Create(AOwner : TEnumDataStream; AStreamName : String; AStreamSize : Int64);
 
     {@M}
-    function CopyFileTo(AFileName : String) : Boolean;
-    function BackupTo(ADestPath : String) : Boolean;
-    function Delete() : Boolean;
+    function CopyFileToADS(AFileName : String) : Boolean;
+    function BackupFromADS(ADestPath : String) : Boolean;
+    function DeleteFromADS() : Boolean;
 
     {@G/S}
     property StreamName : String read FStreamName;
@@ -51,6 +52,8 @@ type
     function Enumerate_FindFirstStream() : Int64;
     function Enumerate_BackupRead() : Int64;
     function ExtractADSName(ARawName : String) : String;
+    function CopyFromTo(AFrom, ATo : String) : Boolean;
+    function GetDataStreamFromName(AStreamName : String) : TDataStream;
   public
     {@C}
     constructor Create(ATargetFile : String; AEnumerateNow : Boolean = True; AForceBackUpReadMethod : Boolean = False);
@@ -59,10 +62,12 @@ type
     {@M}
     function Refresh() : Int64;
 
-    function CopyFromTo(AFrom, ATo : String) : Boolean;
-    function CopyToAlternateDataStream(AFilePath : String) : Boolean;
-    function CopyFromAlternateDataStream(ADataStream : TDataStream; ADestPath : String) : Boolean;
-    function DeleteFromAlternateDataStream(ADataStream : TDataStream) : Boolean;
+    function CopyFileToADS(AFilePath : String) : Boolean;
+    function BackupFromADS(ADataStream : TDataStream; ADestPath : String) : Boolean; overload;
+    function DeleteFromADS(ADataStream : TDataStream) : Boolean; overload;
+    function BackupAllFromADS(ADestPath : String) : TADSBackupStatus;
+    function BackupFromADS(AStreamName, ADestPath : String) : Boolean; overload;
+    function DeleteFromADS(AStreamName : String) : Boolean; overload;
 
     {@G}
     property TargetFile : String                   read FTargetFile;
@@ -315,16 +320,39 @@ begin
       Vista and above
     }
     if self.FForceBackUpReadMethod then
-      self.Enumerate_BackupRead()
-    else    
-      self.Enumerate_FindFirstStream();
+      result := self.Enumerate_BackupRead()
+    else
+      result := self.Enumerate_FindFirstStream();
   end else if (AVersion.Major = 5) and (AVersion.Minor >= 1) then begin
     {
       Windows XP / Server 2003 & R2
     }
-    self.Enumerate_BackupRead();
+    result := self.Enumerate_BackupRead();
   end else begin
     // Unsupported (???)
+  end;
+end;
+
+{-------------------------------------------------------------------------------
+  Refresh ADS Files and retrieve one ADS file by it name.
+-------------------------------------------------------------------------------}
+function TEnumDataStream.GetDataStreamFromName(AStreamName : String) : TDataStream;
+var I       : Integer;
+    AStream : TDataStream;
+begin
+  result := nil;
+  ///
+
+  if (self.Refresh() > 0) then begin
+    for I := 0 to self.Items.count -1 do begin
+      AStream := self.Items.Items[i];
+      if NOT Assigned(AStream) then
+        continue;
+      ///
+
+      if (String.Compare(AStream.StreamName, AStreamName, True) = 0) then
+        result := AStream;
+    end;
   end;
 end;
 
@@ -402,12 +430,12 @@ begin
   end;
 end;
 
-function TEnumDataStream.CopyToAlternateDataStream(AFilePath : String) : Boolean;
+function TEnumDataStream.CopyFileToADS(AFilePath : String) : Boolean;
 begin
   result := CopyFromTo(AFilePath, Format('%s:%s', [self.FTargetFile, ExtractFileName(AFilePath)]));
 end;
 
-function TEnumDataStream.CopyFromAlternateDataStream(ADataStream : TDataStream; ADestPath : String) : Boolean;
+function TEnumDataStream.BackupFromADS(ADataStream : TDataStream; ADestPath : String) : Boolean;
 begin
   result := False;
 
@@ -417,9 +445,53 @@ begin
   result := CopyFromTo(ADataStream.StreamPath, Format('%s%s', [IncludeTrailingPathDelimiter(ADestPath), ADataStream.StreamName]));
 end;
 
-function TEnumDataStream.DeleteFromAlternateDataStream(ADataStream : TDataStream) : Boolean;
+function TEnumDataStream.DeleteFromADS(ADataStream : TDataStream) : Boolean;
 begin
   result := DeleteFile(ADataStream.StreamPath);
+end;
+
+function TEnumDataStream.BackupAllFromADS(ADestPath : String) : TADSBackupStatus;
+var I       : integer;
+    AStream : TDataStream;
+begin
+  result := absError;
+  ///
+
+  if (self.Refresh() > 0) then begin
+    for I := 0 to self.Items.count -1 do begin
+      AStream := self.Items.Items[i];
+      if NOT Assigned(AStream) then
+        continue;
+      ///
+
+      if AStream.BackupFromADS(ADestPath) and (result <> absPartial) then
+        result := absTotal
+      else
+        result := absPartial;
+    end;
+  end;
+end;
+
+function TEnumDataStream.BackupFromADS(AStreamName, ADestPath : String) : Boolean;
+var AStream : TDataStream;
+begin
+  result := False;
+  ///
+
+  AStream := self.GetDataStreamFromName(AStreamName);
+  if Assigned(AStream) then
+    result := self.BackupFromADS(AStream, ADestPath);
+end;
+
+function TEnumDataStream.DeleteFromADS(AStreamName : String) : Boolean;
+var AStream : TDataStream;
+begin
+  result := False;
+  ///
+
+  AStream := self.GetDataStreamFromName(AStreamName);
+  if Assigned(AStream) then
+    result := self.DeleteFromADS(AStream);
 end;
 
 {-------------------------------------------------------------------------------
@@ -481,22 +553,22 @@ end;
   ADS Classic Actions (Redirected to Owner Object)
 -------------------------------------------------------------------------------}
 
-function TDataStream.CopyFileTo(AFileName : String) : Boolean;
+function TDataStream.CopyFileToADS(AFileName : String) : Boolean;
 begin
   if Assigned(FOwner) then
-    result := FOwner.CopyToAlternateDataStream(AFileName);
+    result := FOwner.CopyFileToADS(AFileName);
 end;
 
-function TDataStream.BackupTo(ADestPath : String) : Boolean;
+function TDataStream.BackupFromADS(ADestPath : String) : Boolean;
 begin
   if Assigned(FOwner) then
-    result := FOwner.CopyFromAlternateDataStream(self, ADestPath);
+    result := FOwner.BackupFromADS(self, ADestPath);
 end;
 
-function TDataStream.Delete() : Boolean;
+function TDataStream.DeleteFromADS() : Boolean;
 begin
   if Assigned(FOwner) then
-    result := FOwner.DeleteFromAlternateDataStream(self);
+    result := FOwner.DeleteFromADS(self);
 end;
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -510,5 +582,9 @@ initialization
     @_FindFirstStreamW := GetProcAddress(hKernel32, 'FindFirstStreamW');
     @_FindNextStreamW := GetProcAddress(hKernel32, 'FindNextStreamW');
   end;
+
+finalization
+  _FindFirstStreamW := nil;
+  _FindNextStreamW  := nil;
 
 end.

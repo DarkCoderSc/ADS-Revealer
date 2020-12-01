@@ -114,12 +114,12 @@ object FrmMain: TFrmMain
     Left = 264
     Top = 136
     object CopyfiletocurrentADS1: TMenuItem
-      Caption = 'Copy File To Current ADS'
+      Caption = 'Copy File To Target File ADS'
       ImageIndex = 0
       OnClick = CopyfiletocurrentADS1Click
     end
     object BackupcurrentADS1: TMenuItem
-      Caption = 'Backup File(s) From Current ADS'
+      Caption = 'Backup Target File ADS'
       ImageIndex = 1
       OnClick = BackupcurrentADS1Click
     end
@@ -127,7 +127,7 @@ object FrmMain: TFrmMain
       Caption = '-'
     end
     object DeleteCurrentADSItem1: TMenuItem
-      Caption = 'Delete Current ADS File(s)'
+      Caption = 'Delete Current ADS'
       ImageIndex = 3
       OnClick = DeleteCurrentADSItem1Click
     end

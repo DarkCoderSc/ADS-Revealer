@@ -59,8 +59,7 @@ begin
   if NOT Assigned(AData) then
     Exit();
 
-  AData^.Name        := AFile;
-  AData^.DataStreams := ADataStreams;
+  AData^.Name := AFile;
 
   {
     Create Childs
@@ -76,7 +75,9 @@ begin
       AData := FrmMain.VST.GetNodeData(AChild);
     end);
 
-    AData^.DataStream := AStream;
+    AData^.Name       := AStream.StreamName;
+    AData^.StreamSize := AStream.StreamSize;
+    AData^.StreamPath := AStream.StreamPath;
   end;
 end;
 
@@ -131,10 +132,12 @@ begin
           ///
 
           ADataStreams := TEnumDataStream.Create(AFiles.Strings[i], True);
-          if (ADataStreams.Items.Count > 0) then begin
-            self.AppendItem(AFiles.Strings[i], ADataStreams);
-          end else
+          try
+            if (ADataStreams.Items.Count > 0) then
+              self.AppendItem(AFiles.Strings[i], ADataStreams);
+          finally
             FreeAndNil(ADataStreams);
+          end;
         end;
       finally
         if Assigned(AFiles) then
