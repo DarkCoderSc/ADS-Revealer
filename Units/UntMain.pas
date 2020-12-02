@@ -277,9 +277,8 @@ end;
 
 procedure TFrmMain.OpenFolder1Click(Sender: TObject);
 begin
-  //FLastPath := BrowseForFolder('Search for Alternate Data Stream in Folder:');
+  FLastPath := BrowseForFolder('Search for Alternate Data Stream in Folder:');
 
-  FLastPath:= 'c:\tmp';
   self.RefreshList();
 end;
 
